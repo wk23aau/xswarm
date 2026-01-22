@@ -12,11 +12,22 @@ from pywinauto.findwindows import find_windows
 from pywinauto import Application
 import win32gui
 import win32con
+import json
+
+# Import browser controller
+try:
+    from browser_controller import BrowserController
+    BROWSER_AVAILABLE = True
+except ImportError:
+    BROWSER_AVAILABLE = False
+    print("⚠️  Browser controller not available")
 
 pyautogui.FAILSAFE = False
 
 WORKSPACE_DIR = r"c:\Users\wk23aau\Documents\xauto\xwarm2"
 AGENTS = {}
+BROWSER = None  # Shared browser instance
+
 
 def get_agent_dir(agent_id):
     return os.path.join(WORKSPACE_DIR, ".agent", agent_id)
@@ -186,6 +197,147 @@ def send_directive(agent_id, directive_name, msg_id=None, dir_id=None):
     print(f"    ❌ Failed to send message")
     return None
 
+def send_browser_directive(agent_id, task_description, max_iterations=10):
+    """
+    Send browser automation task to agent with AI-driven execution loop.
+    
+    Agent sees browser state, decides actions, we execute, repeat until done.
+    """
+    global BROWSER
+    
+    if not BROWSER_AVAILABLE:
+        print("❌ Browser not available")
+        return None
+    
+    if agent_id not in AGENTS:
+        print(f"ERROR: {agent_id} not initialized")
+        return None
+    
+    # Start browser if not started
+    if BROWSER is None:
+        BROWSER = BrowserController()
+        BROWSER.start(headless=False)
+        print("🌐 Browser started")
+    
+    # Create initial tab
+    if not BROWSER.state.pages:
+        BROWSER.new_tab()
+    
+    print(f"\n🌐 Browser task for {agent_id}: {task_description}")
+    
+    iteration = 0
+    while iteration < max_iterations:
+        iteration += 1
+        print(f"\n  === Iteration {iteration}/{max_iterations} ===")
+        
+        # Get current browser state for AI
+        browser_context = BROWSER.get_context_for_ai()
+        
+        # Build message with browser state + task
+        msg_id = generate_msg_id()
+        dir_id = f"DIRBROWSER{iteration}"
+        
+        message = f"""[{dir_id}] Browser Automation Task:
+
+**Task**: {task_description}
+
+**Current Browser State**:
+```json
+{json.dumps(browser_context, indent=2)[:2000]}
+```
+
+**Instructions**:
+1. Analyze the current browser state above
+2. Decide next action(s) to accomplish the task
+3. Write actions as JSON array to @{agent_id}_response.txt
+
+**Action Format**:
+```json
+[
+  {{"type": "navigate", "url": "https://example.com"}},
+  {{"type": "click", "selector": "button.search"}},
+  {{"type": "done"}}
+]
+```
+
+Available types: navigate, click, type, scroll, wait, screenshot, done
+
+Write response to @c:/Users/wk23aau/Documents/xauto/xwarm2/.agent/{agent_id}/responses.txt
+Start with [{dir_id}][{msg_id}], end with [{msg_id}]
+"""
+        
+        # Send to agent
+        handle = AGENTS[agent_id]["handle"]
+        resp_file = get_response_file(agent_id)
+        if os.path.exists(resp_file):
+            os.remove(resp_file)
+        
+        print(f"  Asking {agent_id}...")
+        if not send_message_to_window(handle, message):
+            print("  ❌ Failed to send message")
+            break
+        
+        # Wait for agent's decision
+        resp = wait_response(agent_id, msg_id, timeout=60)
+        if not resp:
+            print("  ❌ No response")
+            break
+        
+        print(f"  ✅ {agent_id} responded")
+        
+        # Parse actions from response
+        try:
+            # Extract JSON from response (handle markdown code blocks)
+            actions_json = resp
+            
+            # Try to find JSON in markdown code block first
+            if '```json' in resp:
+                start = resp.find('```json') + len('```json')
+                end = resp.find('```', start)
+                if end != -1:
+                    actions_json = resp[start:end].strip()
+            # Fallback: find raw JSON array
+            elif '[{' in resp:
+                start = resp.find('[{')
+                end = resp.rfind('}]') + 2
+                if start != -1 and end > 1:
+                    actions_json = resp[start:end]
+            
+            actions = json.loads(actions_json)
+            
+            print(f"  Found {len(actions)} action(s)")
+            
+            # Execute actions
+            done = False
+            for action in actions:
+                print(f"    → {action.get('type', 'unknown')}")
+                
+                if action.get('type') == 'done':
+                    done = True
+                    print("    ✅ Task complete!")
+                    break
+                
+                result = BROWSER.execute_action(action)
+                if result['status'] == 'error':
+                    print(f"    ❌ {result['message']}")
+                else:
+                    print(f"    ✅ {result['message']}")
+            
+            if done:
+                break
+                
+        except json.JSONDecodeError as e:
+            print(f"  ❌ JSON parse error: {e}")
+            print(f"  Response: {resp[:200]}...")
+            break
+        except Exception as e:
+            print(f"  ❌ Error: {e}")
+            break
+    
+    print(f"\n✅ Browser task completed in {iteration} iteration(s)")
+    return browser_context
+
+
 def main():
     print("xwarm2 v30 - Auto duplicate workspace")
     print("=" * 40)
@@ -224,15 +376,22 @@ def main():
     for a, info in AGENTS.items():
         print(f"  {a}: {info['status']} (Window Handle {info['handle']})")
     
-    # === Send directive to AGENT001 ===
-    print("\n" + "=" * 40)
-    print("DEMO: Sending directive to AGENT001...")
-    result = send_directive("AGENT001", "analyze_ui_snapshot")
-    if result:
-        print("\n>>> AGENT001 Response:")
-        print(result[:500] + "..." if len(result) > 500 else result)
+    # === Browser Automation Demo ===
+    if BROWSER_AVAILABLE:
+        print("\n" + "=" * 40)
+        print("DEMO: Browser Automation with AGENT001")
+        print("=" * 40)
+        
+        result = send_browser_directive(
+            "AGENT001",
+            "Go to example.com and take a screenshot"
+        )
+        
+        if result:
+            print("\n✅ Browser automation complete!")
+            print(f"Final URL: {result.get('current_page', {}).get('url', 'N/A')}")
     else:
-        print("\n>>> No response received")
+        print("\n⚠️  Browser automation not available (Playwright not installed)")
 
 
 if __name__ == "__main__":

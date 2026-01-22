@@ -13,6 +13,8 @@ xswarm automates interaction with multiple Antigravity chat windows, enabling pa
 - ✅ **File-based responses** - Agents write to `.agent/{AGENT_ID}/responses.txt`
 - ✅ **Message tracking** - Unique message IDs for request/response correlation
 - ✅ **Absolute paths** - Works regardless of workspace configuration
+- ✅ **Browser automation** - Integrates with xauto for vision-based web scraping
+- ✅ **Directive system** - Task dispatch with ID tracking (DIR_ID + MSG_ID)
 
 ## Requirements
 
