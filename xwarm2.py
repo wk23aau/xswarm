@@ -144,6 +144,48 @@ def duplicate_workspace(handle):
     print("  Waiting for new window...")
     time.sleep(5)
 
+def send_directive(agent_id, directive_name, msg_id=None, dir_id=None):
+    """Send a directive task to a specific agent"""
+    if agent_id not in AGENTS:
+        print(f"ERROR: {agent_id} not initialized")
+        return False
+    
+    if msg_id is None:
+        msg_id = generate_msg_id()
+    
+    if dir_id is None:
+        # Generate directive ID
+        dir_id = f"DIR{uuid.uuid4().hex[:6].upper()}"
+    
+    # Build directive message
+    directive_path = f"c:/Users/wk23aau/Documents/xauto/xwarm2/.agent/directives/{directive_name}.md"
+    message = f"[{dir_id}] Execute directive @{directive_path}. Write your response to @c:/Users/wk23aau/Documents/xauto/xwarm2/.agent/{agent_id}/responses.txt starting with [{dir_id}][{msg_id}] and ending with [{msg_id}]."
+    
+    print(f"\n>>> Sending directive '{directive_name}' to {agent_id}")
+    print(f"    DIR: {dir_id}")
+    print(f"    MSG: {msg_id}")
+    
+    # Clear response file
+    resp_file = get_response_file(agent_id)
+    if os.path.exists(resp_file):
+        os.remove(resp_file)
+    
+    # Send message to agent's window
+    handle = AGENTS[agent_id]["handle"]
+    if send_message_to_window(handle, message):
+        resp = wait_response(agent_id, msg_id, timeout=120)
+        if resp:
+            print(f"    ✅ {agent_id} completed directive {dir_id}")
+            # Store directive ID in agent info
+            AGENTS[agent_id]["last_directive"] = dir_id
+            return resp
+        else:
+            print(f"    ❌ {agent_id} timeout")
+            return None
+    
+    print(f"    ❌ Failed to send message")
+    return None
+
 def main():
     print("xwarm2 v30 - Auto duplicate workspace")
     print("=" * 40)
@@ -178,9 +220,20 @@ def main():
     spawn_agent("AGENT002", handles[1])
     
     print("\n" + "=" * 40)
-    print("FINAL RESULT:")
+    print("AGENTS READY:")
     for a, info in AGENTS.items():
         print(f"  {a}: {info['status']} (Window Handle {info['handle']})")
+    
+    # === Send directive to AGENT001 ===
+    print("\n" + "=" * 40)
+    print("DEMO: Sending directive to AGENT001...")
+    result = send_directive("AGENT001", "analyze_ui_snapshot")
+    if result:
+        print("\n>>> AGENT001 Response:")
+        print(result[:500] + "..." if len(result) > 500 else result)
+    else:
+        print("\n>>> No response received")
+
 
 if __name__ == "__main__":
     main()

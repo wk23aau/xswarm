@@ -57,12 +57,48 @@ Agents respond in two places:
 ```
 xwarm2/
 ├── .agent/
+│   ├── directives/          # Task definitions
+│   │   └── analyze_snapshot.md
 │   ├── AGENT001/
 │   │   └── responses.txt
 │   └── AGENT002/
 │       └── responses.txt
 └── xwarm2.py
 ```
+
+### Directive System
+
+Send tasks to specific agents using directives:
+
+```python
+from xwarm2 import send_directive
+
+# Send directive to AGENT001
+result = send_directive("AGENT001", "analyze_snapshot")
+print(result)
+```
+
+**Directive file** (`.agent/directives/analyze_snapshot.md`):
+```markdown
+# Directive: Analyze Snapshot
+
+## Task
+Analyze the provided snapshot and provide insights.
+
+## Instructions
+1. Review the snapshot content
+2. Identify key patterns
+3. Provide recommendations
+
+## Snapshot
+[paste content here]
+```
+
+**Agent workflow:**
+1. Receives: `Execute directive @.agent/directives/analyze_snapshot.md`
+2. Reads directive file
+3. Executes task
+4. Writes response to `.agent/{AGENT_ID}/responses.txt`
 
 ## Code Structure
 
